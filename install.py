@@ -37,7 +37,7 @@ class Application(object):
         Log.info("Created working directory '{0}'".format(work_dir))
 
         with Cmd.pushd(work_dir):
-            self.rpm_py.download_and_install()
+            self.rpm_py.download_and_install(self.linux.local_archive)
             if not self.python.is_python_binding_installed():
                 message = (
                     'RPM Python binding failed to install '
@@ -70,6 +70,10 @@ class Application(object):
         if 'RPM_PY_SYS' in os.environ:
             sys_installed = os.environ.get('RPM_PY_SYS') == 'true'
 
+        local_archive = None
+        if 'RPM_PY_LOCAL_ARCHIVE' in os.environ:
+            local_archive = os.environ.get('RPM_PY_LOCAL_ARCHIVE')
+
         # Python's path that the module is installed on.
         python = Python()
 
@@ -82,7 +86,7 @@ class Application(object):
             raise InstallError('Invalid rpm_path: {0}'.format(rpm_path))
 
         linux = Linux.get_instance(python=python, rpm_path=rpm_path,
-                                   sys_installed=sys_installed)
+                                   sys_installed=sys_installed, local_archive=local_archive)
 
         # Installed RPM Python module's version.
         # Default: Same version with rpm.
@@ -150,7 +154,7 @@ class RpmPy(object):
                                                 optimized=optimized,
                                                 verbose=verbose)
 
-    def download_and_install(self):
+    def download_and_install(self, archive_file_name=None):
         """Download and install RPM Python binding."""
         if self.is_installed_from_bin:
             try:
@@ -160,7 +164,7 @@ class RpmPy(object):
                 Log.warn('RPM Py Package not found. reason: {0}'.format(exc))
 
         # Download and install from the source.
-        top_dir_name = self.downloader.download_and_expand()
+        top_dir_name = self.downloader.download_and_expand(archive_file_name=archive_file_name)
         rpm_py_dir = os.path.join(top_dir_name, 'python')
 
         setup_py_in_found = False
@@ -398,9 +402,14 @@ class Downloader(object):
         self.rpm_py_version = rpm_py_version
         self.git_branch = kwargs.get('git_branch')
 
-    def download_and_expand(self):
+    def download_and_expand(self, archive_file_name=None):
         """Download and expand RPM Python binding."""
         top_dir_name = None
+        if archive_file_name:
+            Cmd.tar_extract(archive_file_name, extract_path='rpm')
+            assert len(os.listdir('rpm')) == 1
+            top_dir_name = os.path.join('rpm', os.listdir('rpm')[0])
+            return top_dir_name
         if self.git_branch:
             # Download a source by git clone.
             top_dir_name = self._download_and_expand_by_git()
@@ -1209,6 +1218,7 @@ class Linux(object):
         self.python = python
         self.rpm = self.create_rpm(rpm_path)
         self.sys_installed = kwargs.get('sys_installed', False)
+        self.local_archive = kwargs.get('local_archive', None)
 
     @classmethod
     def os_release_items(cls):
@@ -2074,7 +2084,7 @@ class Cmd(object):
         return tar_gz_file_name
 
     @classmethod
-    def tar_extract(cls, tar_comp_file_path):
+    def tar_extract(cls, tar_comp_file_path, extract_path=None):
         """Extract tar.gz or tar bz2 file.
 
         It behaves like
@@ -2084,7 +2094,7 @@ class Cmd(object):
         """
         try:
             with contextlib.closing(tarfile.open(tar_comp_file_path)) as tar:
-                tar.extractall()
+                tar.extractall(path=extract_path)
         except tarfile.ReadError as exc:
             message_format = (
                 'Extract failed: '
